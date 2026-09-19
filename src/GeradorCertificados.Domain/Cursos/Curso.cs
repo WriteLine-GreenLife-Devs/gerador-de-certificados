@@ -9,6 +9,7 @@ public sealed class Curso
         if (string.IsNullOrWhiteSpace(nome) || nome.Trim().Length > 200) throw new ArgumentException("O nome deve ter entre 1 e 200 caracteres.", nameof(nome));
         if (descricao?.Length > 500) throw new ArgumentException("A descrição deve ter no máximo 500 caracteres.", nameof(descricao));
         if (cargaHoraria <= 0) throw new ArgumentOutOfRangeException(nameof(cargaHoraria), "A carga horária deve ser maior que zero.");
+        if (dataConclusao == DateOnly.MinValue) throw new ArgumentException("A data de conclusão é obrigatória.", nameof(dataConclusao));
         return new Curso(nome.Trim(), descricao?.Trim(), cargaHoraria, dataConclusao);
     }
 }

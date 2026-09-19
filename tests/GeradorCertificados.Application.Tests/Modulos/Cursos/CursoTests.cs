@@ -7,4 +7,5 @@ public sealed class CursoTests
     [TestMethod] [DataRow("")] [DataRow(" ")] public void Criar_ComNomeInvalido_LancaArgumentException(string nome) => Assert.Throws<ArgumentException>(() => Curso.Criar(nome, null, 10, new DateOnly(2026, 1, 1)));
     [TestMethod] public void Criar_ComDescricaoMaiorQue500Caracteres_LancaArgumentException() => Assert.Throws<ArgumentException>(() => Curso.Criar("Curso", new string('a', 501), 10, new DateOnly(2026, 1, 1)));
     [TestMethod] public void Criar_ComCargaHorariaNaoPositiva_LancaArgumentOutOfRangeException() => Assert.Throws<ArgumentOutOfRangeException>(() => Curso.Criar("Curso", null, 0, new DateOnly(2026, 1, 1)));
+    [TestMethod] public void Criar_ComDataConclusaoPadrao_LancaArgumentException() => Assert.Throws<ArgumentException>(() => Curso.Criar("Curso", null, 10, DateOnly.MinValue));
 }
