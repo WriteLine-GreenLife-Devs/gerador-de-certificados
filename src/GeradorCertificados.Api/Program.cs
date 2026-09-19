@@ -4,6 +4,7 @@ using GeradorCertificados.Infrastructure.Usuarios;
 using GeradorCertificados.Infrastructure.Persistencia;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,9 +19,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
 var app = builder.Build();
-using (var scope = app.Services.CreateScope())
+if (app.Environment.IsDevelopment())
 {
-    scope.ServiceProvider.GetRequiredService<AplicacaoDbContext>().Database.EnsureCreated();
+    using var scope = app.Services.CreateScope();
+    scope.ServiceProvider.GetRequiredService<AplicacaoDbContext>().Database.Migrate();
 }
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
