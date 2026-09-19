@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using GeradorCertificados.Application.Usuarios;
 
 namespace GeradorCertificados.Application;
 
@@ -6,7 +7,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
-        // Registros de casos de uso e handlers serão incluídos pelos módulos.
+        services.AddScoped<AutenticacaoService>();
         return services;
     }
 }
