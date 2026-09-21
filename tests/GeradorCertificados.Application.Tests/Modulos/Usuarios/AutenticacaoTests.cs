@@ -1,7 +1,7 @@
 using GeradorCertificados.Application.Usuarios;
 using GeradorCertificados.Domain.Usuarios;
 
-namespace GeradorCertificados.Application.Tests.Usuarios;
+namespace GeradorCertificados.Application.Tests.Modulos.Usuarios;
 
 [TestClass]
 public sealed class AutenticacaoTests
