@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\GeradorCertificados.Application\GeradorCertificados.Application.csproj" />
     <ProjectReference Include="..\..\src\GeradorCertificados.Domain\GeradorCertificados.Domain.csproj" />
     <ProjectReference Include="..\..\src\GeradorCertificados.Infrastructure\GeradorCertificados.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\GeradorCertificados.Infrastructure.SqlServerMigrations\GeradorCertificados.Infrastructure.SqlServerMigrations.csproj" />
   </ItemGroup>
 
 </Project>

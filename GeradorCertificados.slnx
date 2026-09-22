@@ -4,6 +4,7 @@
     <Project Path="src/GeradorCertificados.Application/GeradorCertificados.Application.csproj" />
     <Project Path="src/GeradorCertificados.Domain/GeradorCertificados.Domain.csproj" />
     <Project Path="src/GeradorCertificados.Infrastructure/GeradorCertificados.Infrastructure.csproj" />
+    <Project Path="src/GeradorCertificados.Infrastructure.SqlServerMigrations/GeradorCertificados.Infrastructure.SqlServerMigrations.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GeradorCertificados.Application.Tests/GeradorCertificados.Application.Tests.csproj" />

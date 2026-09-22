@@ -31,9 +31,13 @@ public sealed class AplicacaoDbContext(DbContextOptions<AplicacaoDbContext> opti
                 .WithOne()
                 .HasForeignKey(x => x.SolicitacaoId)
                 .OnDelete(DeleteBehavior.Restrict);
+            var filtroSolicitacaoAtiva = Database.ProviderName == "Microsoft.EntityFrameworkCore.SqlServer"
+                ? "[Status] IN ('Pendente', 'GerandoCertificados', 'GerandoZip')"
+                : "\"Status\" IN ('Pendente', 'GerandoCertificados', 'GerandoZip')";
+
             e.HasIndex(x => x.CursoId)
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('Pendente', 'GerandoCertificados', 'GerandoZip')");
+                .HasFilter(filtroSolicitacaoAtiva);
         });
 
         modelBuilder.Entity<Certificado>(e =>

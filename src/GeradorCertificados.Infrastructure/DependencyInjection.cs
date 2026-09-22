@@ -22,7 +22,29 @@ public static class DependencyInjection
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        services.AddDbContext<AplicacaoDbContext>(o => o.UseNpgsql(configuration.GetConnectionString("PostgresEF")));
+        var databaseProvider = configuration["Database:Provider"] ?? "Postgres";
+        var connectionName = databaseProvider switch
+        {
+            "Postgres" => "PostgresEF",
+            "SqlServer" => "SqlServerEF",
+            _ => throw new InvalidOperationException($"Provider de banco não suportado: '{databaseProvider}'. Valores válidos: Postgres, SqlServer.")
+        };
+        var connectionString = configuration.GetConnectionString(connectionName);
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException($"A connection string 'ConnectionStrings:{connectionName}' é obrigatória para o provider '{databaseProvider}'.");
+
+        services.AddDbContext<AplicacaoDbContext>(options =>
+        {
+            if (databaseProvider == "Postgres")
+            {
+                options.UseNpgsql(connectionString, npgsql =>
+                    npgsql.MigrationsAssembly(typeof(AplicacaoDbContext).Assembly.GetName().Name));
+                return;
+            }
+
+            options.UseSqlServer(connectionString, sqlServer =>
+                sqlServer.MigrationsAssembly("GeradorCertificados.Infrastructure.SqlServerMigrations"));
+        });
         services.AddScoped<IUsuarioRepository, UsuarioRepository>(); services.AddSingleton<ISenhaService, SenhaService>(); services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<IRepositorioCurso, RepositorioCurso>();
         services.AddScoped<ISolicitacaoCertificadoRepository, SolicitacaoCertificadoRepository>();
