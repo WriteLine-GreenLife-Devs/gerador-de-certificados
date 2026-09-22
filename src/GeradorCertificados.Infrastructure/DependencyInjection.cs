@@ -27,6 +27,11 @@ public static class DependencyInjection
         services.AddScoped<ISolicitacaoCertificadoRepository, SolicitacaoCertificadoRepository>();
         services.AddScoped<IPublicadorSolicitacaoCertificados, MassTransitCertificadosMensagemPublisher>();
         services.AddSingleton<IGeradorPdfCertificado, QuestPdfCertificadoGenerator>();
+        services.AddSingleton<IGeradorZipCertificados>(_ =>
+        {
+            var diretorioBase = configuration["Certificados:DiretorioBase"] ?? Path.Combine(AppContext.BaseDirectory, "certificados");
+            return new ZipCertificadosGenerator(diretorioBase);
+        });
         services.AddSingleton<IArmazenamentoCertificadoPdf>(_ =>
         {
             var diretorioBase = configuration["Certificados:DiretorioBase"] ?? Path.Combine(AppContext.BaseDirectory, "certificados");

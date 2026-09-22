@@ -2,6 +2,7 @@ using GeradorCertificados.Api.Contracts.Certificados;
 using GeradorCertificados.Application.Certificados;
 using GeradorCertificados.Application.Certificados.Commands;
 using GeradorCertificados.Application.Certificados.Queries;
+using GeradorCertificados.Domain.Certificados;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using StatusSolicitacaoResponseApi = GeradorCertificados.Api.Contracts.Certificados.StatusSolicitacaoResponse;
@@ -78,6 +79,36 @@ public sealed class CertificadosController(IMediator mediator) : ControllerBase
                 x.NomeAluno,
                 x.Status.ToString(),
                 x.DataGeracao)).ToList());
+        }
+        catch (CursoInexistenteException ex)
+        {
+            return NotFound(new ProblemDetails { Title = "Curso não encontrado", Detail = ex.Message, Status = StatusCodes.Status404NotFound });
+        }
+        catch (SolicitacaoNaoEncontradaException ex)
+        {
+            return NotFound(new ProblemDetails { Title = "Solicitação não encontrada", Detail = ex.Message, Status = StatusCodes.Status404NotFound });
+        }
+    }
+
+    [HttpGet("{cursoId:guid}/certificados/download")]
+    public async Task<IActionResult> Download(Guid cursoId, CancellationToken ct)
+    {
+        try
+        {
+            var arquivo = await mediator.Send(new ObterDownloadCertificadosQuery(cursoId), ct);
+            if (arquivo is null)
+            {
+                var status = await mediator.Send(new ConsultarStatusSolicitacaoQuery(cursoId), ct);
+                if (status.Status is StatusSolicitacaoCertificado.Pendente or StatusSolicitacaoCertificado.GerandoCertificados or StatusSolicitacaoCertificado.GerandoZip)
+                    return Conflict(new ProblemDetails { Title = "Conflito", Detail = "A solicitação ainda não está concluída para download do ZIP.", Status = StatusCodes.Status409Conflict });
+
+                if (status.Status == StatusSolicitacaoCertificado.Falha)
+                    return Problem(title: "Solicitação falhou", detail: "Não há ZIP disponível para esta solicitação.", statusCode: StatusCodes.Status409Conflict);
+
+                return NotFound(new ProblemDetails { Title = "Arquivo não encontrado", Detail = "O ZIP da solicitação não está disponível.", Status = StatusCodes.Status404NotFound });
+            }
+
+            return File(arquivo.Conteudo, arquivo.ContentType, arquivo.NomeArquivo);
         }
         catch (CursoInexistenteException ex)
         {

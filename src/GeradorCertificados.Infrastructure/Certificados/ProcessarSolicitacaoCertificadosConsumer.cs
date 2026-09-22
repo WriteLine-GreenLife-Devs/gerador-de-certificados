@@ -12,7 +12,8 @@ public sealed class ProcessarSolicitacaoCertificadosConsumer(
     IRepositorioCurso cursos,
     IGeradorPdfCertificado geradorPdf,
     IArmazenamentoCertificadoPdf armazenamentoPdf,
-    ILogger<ProcessarSolicitacaoCertificadosConsumer>? logger = null) : IConsumer<ProcessarSolicitacaoCertificados>
+    ILogger<ProcessarSolicitacaoCertificadosConsumer>? logger = null,
+    IGeradorZipCertificados? geradorZip = null) : IConsumer<ProcessarSolicitacaoCertificados>
 {
     public async Task Consume(ConsumeContext<ProcessarSolicitacaoCertificados> context)
     {
@@ -28,8 +29,7 @@ public sealed class ProcessarSolicitacaoCertificadosConsumer(
             return;
         }
 
-        if (solicitacao.Status == StatusSolicitacaoCertificado.GerandoZip ||
-            solicitacao.Status == StatusSolicitacaoCertificado.Concluido ||
+        if (solicitacao.Status == StatusSolicitacaoCertificado.Concluido ||
             solicitacao.Status == StatusSolicitacaoCertificado.Falha)
         {
             return;
@@ -67,13 +67,8 @@ public sealed class ProcessarSolicitacaoCertificadosConsumer(
 
                         var pdf = geradorPdf.GerarPdf(dadosPdf);
                         var caminhoRelativo = armazenamentoPdf.ObterCaminhoRelativo(solicitacao.Id, certificado.Id);
-                        var caminhoFisico = armazenamentoPdf.ObterCaminhoFisico(solicitacao.Id, certificado.Id);
 
-                        if (armazenamentoPdf.ArquivoExiste(solicitacao.Id, certificado.Id))
-                        {
-                            logger?.LogInformation("Arquivo do certificado {CertificadoId} já existe; mantendo o arquivo atual.", certificado.Id);
-                        }
-                        else
+                        if (!armazenamentoPdf.ArquivoExiste(solicitacao.Id, certificado.Id))
                         {
                             armazenamentoPdf.Salvar(solicitacao.Id, certificado.Id, pdf);
                         }
@@ -91,16 +86,54 @@ public sealed class ProcessarSolicitacaoCertificadosConsumer(
 
                 if (solicitacao.Certificados.All(x => x.Status is StatusCertificado.Gerado or StatusCertificado.Falha))
                 {
+                    if (!solicitacao.Certificados.Any(x => x.Status == StatusCertificado.Gerado))
+                    {
+                        solicitacao.MarcarFalha();
+                        await solicitacoes.SalvarAlteracoesAsync(ct);
+                        logger?.LogWarning("Solicitação {SolicitacaoId} terminou sem certificados válidos para empacotar.", solicitacaoId);
+                        return;
+                    }
+
                     solicitacao.IniciarGeracaoZip();
                     await solicitacoes.SalvarAlteracoesAsync(ct);
                 }
+            }
+
+            if (solicitacao.Status == StatusSolicitacaoCertificado.GerandoZip)
+            {
+                if (geradorZip is null)
+                {
+                    logger?.LogWarning("GerandoZip reprocessado sem gerador de ZIP para a solicitação {SolicitacaoId}; manutenção da transição atual.", solicitacaoId);
+                    return;
+                }
+
+                var idsGerados = solicitacao.Certificados
+                    .Where(x => x.Status == StatusCertificado.Gerado)
+                    .Select(x => x.Id)
+                    .ToList();
+
+                if (idsGerados.Count == 0)
+                {
+                    solicitacao.MarcarFalha();
+                    await solicitacoes.SalvarAlteracoesAsync(ct);
+                    logger?.LogWarning("Solicitação {SolicitacaoId} entrou em GerandoZip sem certificados gerados.", solicitacaoId);
+                    return;
+                }
+
+                geradorZip.GerarZip(solicitacao.Id, idsGerados);
+                solicitacao.Concluir();
+                await solicitacoes.SalvarAlteracoesAsync(ct);
+                logger?.LogInformation("ZIP gerado com sucesso para solicitação {SolicitacaoId}.", solicitacaoId);
             }
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Falha global ao processar a solicitação {SolicitacaoId}.", solicitacaoId);
-            solicitacao.MarcarFalha();
-            await solicitacoes.SalvarAlteracoesAsync(ct);
+            if (solicitacao.Status != StatusSolicitacaoCertificado.Falha)
+            {
+                solicitacao.MarcarFalha();
+                await solicitacoes.SalvarAlteracoesAsync(ct);
+            }
         }
     }
 }

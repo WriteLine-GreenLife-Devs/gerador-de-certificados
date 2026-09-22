@@ -91,6 +91,31 @@ public sealed class ProcessarSolicitacaoCertificadosConsumerTests
     }
 
     [TestMethod]
+    public async Task Consume_ComPdfJaExistente_NaoDuplicaArquivoMasMarcaComoGerado()
+    {
+        var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
+        var solicitacao = SolicitacaoCertificado.Criar(curso.Id, ["Maria"]);
+        var repository = new FakeSolicitacaoCertificadoRepository(solicitacao);
+        var storage = new FakeArmazenamentoCertificadoPdf(arquivoExiste: true);
+        var generator = new FakeGeradorPdfCertificado();
+        var consumer = new ProcessarSolicitacaoCertificadosConsumer(
+            repository,
+            new FakeCursoRepository(curso),
+            generator,
+            storage,
+            NullLogger<ProcessarSolicitacaoCertificadosConsumer>.Instance);
+
+        await consumer.ProcessarAsync(solicitacao.Id, CancellationToken.None);
+
+        Assert.AreEqual(StatusSolicitacaoCertificado.GerandoZip, solicitacao.Status);
+        Assert.AreEqual(StatusCertificado.Gerado, solicitacao.Certificados.Single().Status);
+        Assert.IsNotNull(solicitacao.Certificados.Single().CaminhoArquivo);
+        Assert.IsNotNull(solicitacao.Certificados.Single().DataGeracao);
+        Assert.AreEqual(0, storage.QuantidadeSalvamentos);
+        Assert.AreEqual(1, generator.QuantidadeChamadas);
+    }
+
+    [TestMethod]
     public async Task Consume_ComSolicitacaoGerandoZip_Ignora()
     {
         var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
@@ -185,17 +210,22 @@ public sealed class ProcessarSolicitacaoCertificadosConsumerTests
         public Task<Curso?> ObterPorIdAsync(Guid id, CancellationToken ct) => Task.FromResult(curso);
     }
 
-    private sealed class FakeArmazenamentoCertificadoPdf : IArmazenamentoCertificadoPdf
+    private sealed class FakeArmazenamentoCertificadoPdf(bool arquivoExiste = false) : IArmazenamentoCertificadoPdf
     {
+        public int QuantidadeSalvamentos { get; private set; }
+
         public string ObterDiretorioBase() => "C:/tmp/certificados";
 
         public string ObterCaminhoRelativo(Guid solicitacaoId, Guid certificadoId) => $"certificados/solicitacao/{certificadoId}.pdf";
 
         public string ObterCaminhoFisico(Guid solicitacaoId, Guid certificadoId) => $"C:/tmp/certificados/solicitacao/{certificadoId}.pdf";
 
-        public void Salvar(Guid solicitacaoId, Guid certificadoId, byte[] pdf) { }
+        public void Salvar(Guid solicitacaoId, Guid certificadoId, byte[] pdf)
+        {
+            QuantidadeSalvamentos++;
+        }
 
-        public bool ArquivoExiste(Guid solicitacaoId, Guid certificadoId) => false;
+        public bool ArquivoExiste(Guid solicitacaoId, Guid certificadoId) => arquivoExiste;
     }
 
     private sealed class FakeGeradorPdfCertificado(string? gerarFalhaPara = null) : IGeradorPdfCertificado

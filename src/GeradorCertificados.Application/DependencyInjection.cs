@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<SolicitarGeracaoCertificadosCommandHandler>();
         services.AddScoped<ConsultarStatusSolicitacaoQueryHandler>();
         services.AddScoped<ListarCertificadosQueryHandler>();
+        services.AddScoped<ObterDownloadCertificadosQueryHandler>();
 
         return services;
     }
