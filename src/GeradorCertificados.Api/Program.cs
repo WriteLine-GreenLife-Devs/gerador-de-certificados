@@ -1,3 +1,4 @@
+using GeradorCertificados.Api;
 using GeradorCertificados.Application;
 using GeradorCertificados.Infrastructure;
 using GeradorCertificados.Infrastructure.Usuarios;
@@ -10,6 +11,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 var jwt = builder.Configuration.GetRequiredSection("Jwt").Get<JwtSettings>() ?? throw new InvalidOperationException("A configuração Jwt é obrigatória.");
