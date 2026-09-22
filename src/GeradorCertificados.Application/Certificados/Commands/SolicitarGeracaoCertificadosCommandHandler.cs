@@ -6,7 +6,8 @@ namespace GeradorCertificados.Application.Certificados.Commands;
 
 public sealed class SolicitarGeracaoCertificadosCommandHandler(
     IRepositorioCurso cursos,
-    ISolicitacaoCertificadoRepository solicitacoes) : IRequestHandler<SolicitarGeracaoCertificadosCommand, SolicitacaoCertificadoResumo>
+    ISolicitacaoCertificadoRepository solicitacoes,
+    IPublicadorSolicitacaoCertificados? publicador = null) : IRequestHandler<SolicitarGeracaoCertificadosCommand, SolicitacaoCertificadoResumo>
 {
     public async Task<SolicitacaoCertificadoResumo> Handle(SolicitarGeracaoCertificadosCommand request, CancellationToken ct)
     {
@@ -41,6 +42,9 @@ public sealed class SolicitarGeracaoCertificadosCommandHandler(
 
         var solicitacao = SolicitacaoCertificado.Criar(request.CursoId, alunos!);
         await solicitacoes.AdicionarAsync(solicitacao, ct);
+
+        if (publicador is not null)
+            await publicador.PublicarSolicitacaoAsync(solicitacao.Id, ct);
 
         return new SolicitacaoCertificadoResumo(
             solicitacao.Id,
