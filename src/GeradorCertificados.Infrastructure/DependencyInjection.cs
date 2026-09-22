@@ -11,6 +11,7 @@ using GeradorCertificados.Application.Certificados.Mensagens;
 using GeradorCertificados.Infrastructure.Certificados;
 using GeradorCertificados.Infrastructure.RabbitMq;
 using MassTransit;
+using QuestPDF.Infrastructure;
 
 namespace GeradorCertificados.Infrastructure;
 
@@ -18,11 +19,19 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        QuestPDF.Settings.License = LicenseType.Community;
+
         services.AddDbContext<AplicacaoDbContext>(o => o.UseNpgsql(configuration.GetConnectionString("PostgresEF")));
         services.AddScoped<IUsuarioRepository, UsuarioRepository>(); services.AddSingleton<ISenhaService, SenhaService>(); services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<IRepositorioCurso, RepositorioCurso>();
         services.AddScoped<ISolicitacaoCertificadoRepository, SolicitacaoCertificadoRepository>();
         services.AddScoped<IPublicadorSolicitacaoCertificados, MassTransitCertificadosMensagemPublisher>();
+        services.AddSingleton<IGeradorPdfCertificado, QuestPdfCertificadoGenerator>();
+        services.AddSingleton<IArmazenamentoCertificadoPdf>(_ =>
+        {
+            var diretorioBase = configuration["Certificados:DiretorioBase"] ?? Path.Combine(AppContext.BaseDirectory, "certificados");
+            return new ArmazenamentoCertificadoPdf(diretorioBase);
+        });
 
         var rabbitMqOptions = configuration.GetSection("RabbitMq").Get<RabbitMqOptions>() ?? new RabbitMqOptions();
         services.AddMassTransit(x =>
