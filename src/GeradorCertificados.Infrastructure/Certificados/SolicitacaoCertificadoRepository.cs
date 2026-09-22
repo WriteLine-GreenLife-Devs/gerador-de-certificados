@@ -10,7 +10,15 @@ public sealed class SolicitacaoCertificadoRepository(AplicacaoDbContext db) : IS
     public async Task AdicionarAsync(SolicitacaoCertificado solicitacao, CancellationToken ct)
     {
         db.SolicitacoesCertificado.Add(solicitacao);
-        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            throw new SolicitacaoEmProcessamentoException(solicitacao.CursoId);
+        }
     }
 
     public Task<SolicitacaoCertificado?> ObterPorIdAsync(Guid id, CancellationToken ct)
@@ -42,4 +50,10 @@ public sealed class SolicitacaoCertificadoRepository(AplicacaoDbContext db) : IS
 
     public Task SalvarAlteracoesAsync(CancellationToken ct)
         => db.SaveChangesAsync(ct);
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is not null
+            && ex.InnerException.Message.Contains("IX_SolicitacoesCertificado_CursoId", StringComparison.OrdinalIgnoreCase);
+    }
 }
