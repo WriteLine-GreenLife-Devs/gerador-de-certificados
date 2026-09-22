@@ -1,5 +1,6 @@
 using GeradorCertificados.Application.Usuarios;
 using GeradorCertificados.Domain.Usuarios;
+using Moq;
 
 namespace GeradorCertificados.Application.Tests.Modulos.Usuarios;
 
@@ -34,6 +35,21 @@ public sealed class AutenticacaoTests
     {
         var service = CriarService(existeEmail: true);
         await Assert.ThrowsAsync<ConflitoDeNegocioException>(() => service.CadastrarAsync("aluno@exemplo.com", "Senha@123", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task CadastrarAsync_ComEmailJaCadastradoNoMock_NaoPersisteUsuarioELancaConflito()
+    {
+        var repositorioMock = new Mock<IUsuarioRepository>();
+        repositorioMock
+            .Setup(x => x.ExisteEmailAsync("aluno@exemplo.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var service = new AutenticacaoService(repositorioMock.Object, new SenhaServiceFake(), new TokenServiceFake());
+
+        await Assert.ThrowsExactlyAsync<ConflitoDeNegocioException>(() => service.CadastrarAsync("aluno@exemplo.com", "Senha@123", CancellationToken.None));
+
+        repositorioMock.Verify(x => x.ExisteEmailAsync("aluno@exemplo.com", It.IsAny<CancellationToken>()), Times.Once);
+        repositorioMock.Verify(x => x.AdicionarAsync(It.IsAny<Usuario>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static AutenticacaoService CriarService(bool existeEmail = false) =>

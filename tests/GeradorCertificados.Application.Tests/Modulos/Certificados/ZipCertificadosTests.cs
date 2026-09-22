@@ -54,7 +54,7 @@ public sealed class ZipCertificadosTests
     }
 
     [TestMethod]
-    public void GeradorZip_GeraArquivoValidoComSomenteCertificadosGerados()
+    public void GerarZip_ComCertificadosGerados_GeraArquivoValidoSomenteComGerados()
     {
         var solicitacaoId = Guid.NewGuid();
         var zipGenerator = new ZipCertificadosGenerator("C:/tmp/gerador-zip-tests");

@@ -4,6 +4,7 @@ using GeradorCertificados.Application.Certificados.Queries;
 using GeradorCertificados.Application.Cursos;
 using GeradorCertificados.Domain.Certificados;
 using GeradorCertificados.Domain.Cursos;
+using Moq;
 
 namespace GeradorCertificados.Application.Tests.Modulos.Certificados;
 
@@ -44,6 +45,27 @@ public sealed class CertificadosHandlersTests
     }
 
     [TestMethod]
+    public async Task SolicitarGeracaoCertificadosCommandHandler_ComCursoInexistenteNoMock_NaoPersisteNemPublica()
+    {
+        var cursoRepositoryMock = new Mock<IRepositorioCurso>();
+        cursoRepositoryMock
+            .Setup(x => x.ObterPorIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Curso?)null);
+        var solicitacaoRepositoryMock = new Mock<ISolicitacaoCertificadoRepository>();
+        var publicadorMock = new Mock<IPublicadorSolicitacaoCertificados>();
+        var handler = new SolicitarGeracaoCertificadosCommandHandler(
+            cursoRepositoryMock.Object,
+            solicitacaoRepositoryMock.Object,
+            publicadorMock.Object);
+
+        await Assert.ThrowsExactlyAsync<CursoInexistenteException>(() =>
+            handler.Handle(new SolicitarGeracaoCertificadosCommand(Guid.NewGuid(), ["Maria"]), CancellationToken.None));
+
+        solicitacaoRepositoryMock.Verify(x => x.AdicionarAsync(It.IsAny<SolicitacaoCertificado>(), It.IsAny<CancellationToken>()), Times.Never);
+        publicadorMock.Verify(x => x.PublicarSolicitacaoAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task SolicitarGeracaoCertificadosCommandHandler_ComSolicitacaoAtiva_LancaConflitoDeNegocio()
     {
         var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
@@ -51,6 +73,32 @@ public sealed class CertificadosHandlersTests
         var handler = new SolicitarGeracaoCertificadosCommandHandler(new FakeCursoRepository(curso), new FakeSolicitacaoCertificadoRepository(solicitacaoAtiva));
 
         await Assert.ThrowsExactlyAsync<SolicitacaoEmProcessamentoException>(() => handler.Handle(new SolicitarGeracaoCertificadosCommand(curso.Id, ["João"]), CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task SolicitarGeracaoCertificadosCommandHandler_ComSolicitacaoAtivaNoMock_NaoPersisteNemPublica()
+    {
+        var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
+        var solicitacaoAtiva = SolicitacaoCertificado.Criar(curso.Id, ["Maria"]);
+        var cursoRepositoryMock = new Mock<IRepositorioCurso>();
+        cursoRepositoryMock
+            .Setup(x => x.ObterPorIdAsync(curso.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(curso);
+        var solicitacaoRepositoryMock = new Mock<ISolicitacaoCertificadoRepository>();
+        solicitacaoRepositoryMock
+            .Setup(x => x.ObterMaisRecentePorCursoAsync(curso.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(solicitacaoAtiva);
+        var publicadorMock = new Mock<IPublicadorSolicitacaoCertificados>();
+        var handler = new SolicitarGeracaoCertificadosCommandHandler(
+            cursoRepositoryMock.Object,
+            solicitacaoRepositoryMock.Object,
+            publicadorMock.Object);
+
+        await Assert.ThrowsExactlyAsync<SolicitacaoEmProcessamentoException>(() =>
+            handler.Handle(new SolicitarGeracaoCertificadosCommand(curso.Id, ["João"]), CancellationToken.None));
+
+        solicitacaoRepositoryMock.Verify(x => x.AdicionarAsync(It.IsAny<SolicitacaoCertificado>(), It.IsAny<CancellationToken>()), Times.Never);
+        publicadorMock.Verify(x => x.PublicarSolicitacaoAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [TestMethod]
@@ -110,7 +158,7 @@ public sealed class CertificadosHandlersTests
     }
 
     [TestMethod]
-    public async Task ListarCertificadosQueryHandler_NaoExpõeCaminhoArquivo()
+    public async Task ListarCertificadosQueryHandler_ComSolicitacaoExistente_NaoExpoeCaminhoArquivo()
     {
         var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
         var solicitacao = SolicitacaoCertificado.Criar(curso.Id, ["Maria"]);

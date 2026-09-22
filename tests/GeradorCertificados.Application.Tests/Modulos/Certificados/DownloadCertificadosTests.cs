@@ -1,5 +1,6 @@
 using GeradorCertificados.Api.Controllers;
 using GeradorCertificados.Application.Certificados;
+using GeradorCertificados.Application.Certificados.Commands;
 using GeradorCertificados.Application.Certificados.Queries;
 using GeradorCertificados.Application.Cursos;
 using GeradorCertificados.Domain.Certificados;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using SolicitarCertificadosRequestApi = GeradorCertificados.Api.Contracts.Certificados.SolicitarCertificadosRequest;
 
 namespace GeradorCertificados.Application.Tests.Modulos.Certificados;
 
@@ -207,6 +209,30 @@ public sealed class DownloadCertificadosTests
         var conflict = actionResult as ObjectResult;
         Assert.IsNotNull(conflict);
         Assert.AreEqual(StatusCodes.Status409Conflict, conflict!.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Controller_SolicitarComSolicitacaoAtiva_RetornaConflict()
+    {
+        var cursoId = Guid.NewGuid();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<SolicitarGeracaoCertificadosCommand>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SolicitacaoEmProcessamentoException(cursoId));
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Solicitar(
+            cursoId,
+            new SolicitarCertificadosRequestApi(["Maria"]),
+            CancellationToken.None);
+
+        var conflict = actionResult as ConflictObjectResult;
+        Assert.IsNotNull(conflict);
+        Assert.AreEqual(StatusCodes.Status409Conflict, conflict!.StatusCode);
+        var problem = conflict.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Conflito", problem!.Title);
+        Assert.AreEqual(StatusCodes.Status409Conflict, problem.Status);
     }
 
     private sealed class FakeCursoRepository(Curso? curso) : IRepositorioCurso

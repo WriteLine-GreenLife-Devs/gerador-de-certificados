@@ -32,7 +32,7 @@ public sealed class QuestPdfCertificadoGeneratorTests
     }
 
     [TestMethod]
-    public void ArmazenamentoCertificadoPdf_UsaCertificadoIdNoNomeDoArquivo()
+    public void ObterCaminho_ComCertificadoValido_UsaCertificadoIdNoNomeDoArquivo()
     {
         var armazenamento = new ArmazenamentoCertificadoPdf("C:/tmp/gerador-certificados-tests");
         var solicitacaoId = Guid.Parse("11111111-1111-1111-1111-111111111111");

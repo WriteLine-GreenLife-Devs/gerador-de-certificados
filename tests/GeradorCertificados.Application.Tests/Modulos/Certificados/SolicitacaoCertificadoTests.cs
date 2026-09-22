@@ -69,6 +69,18 @@ public sealed class SolicitacaoCertificadoTests
     }
 
     [TestMethod]
+    [DataRow("GerandoCertificados")]
+    [DataRow("GerandoZip")]
+    [DataRow("Concluido")]
+    [DataRow("Falha")]
+    public void IniciarProcessamento_QuandoStatusNaoPermite_LancaInvalidOperationException(string status)
+    {
+        var solicitacao = CriarSolicitacaoNoStatus(status);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => solicitacao.IniciarProcessamento());
+    }
+
+    [TestMethod]
     public void IniciarGeracaoZip_AposGerandoCertificados_AtualizaStatus()
     {
         var solicitacao = SolicitacaoCertificado.Criar(Guid.NewGuid(), ["Maria"]);
@@ -89,6 +101,18 @@ public sealed class SolicitacaoCertificadoTests
         solicitacao.Concluir();
 
         Assert.AreEqual(StatusSolicitacaoCertificado.Concluido, solicitacao.Status);
+    }
+
+    [TestMethod]
+    [DataRow("Pendente")]
+    [DataRow("GerandoCertificados")]
+    [DataRow("Concluido")]
+    [DataRow("Falha")]
+    public void Concluir_QuandoNaoEstaGerandoZip_LancaInvalidOperationException(string status)
+    {
+        var solicitacao = CriarSolicitacaoNoStatus(status);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => solicitacao.Concluir());
     }
 
     [TestMethod]
@@ -129,5 +153,60 @@ public sealed class SolicitacaoCertificadoTests
         solicitacao.Concluir();
 
         Assert.ThrowsExactly<InvalidOperationException>(() => solicitacao.MarcarFalha());
+    }
+
+    [TestMethod]
+    [DataRow("GerandoCertificados")]
+    [DataRow("GerandoZip")]
+    public void MarcarFalha_QuandoStatusIntermediario_AtualizaStatus(string status)
+    {
+        var solicitacao = CriarSolicitacaoNoStatus(status);
+
+        solicitacao.MarcarFalha();
+
+        Assert.AreEqual(StatusSolicitacaoCertificado.Falha, solicitacao.Status);
+    }
+
+    [TestMethod]
+    public void MarcarFalha_QuandoJaFalha_LancaInvalidOperationException()
+    {
+        var solicitacao = SolicitacaoCertificado.Criar(Guid.NewGuid(), ["Maria"]);
+        solicitacao.MarcarFalha();
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => solicitacao.MarcarFalha());
+    }
+
+    [TestMethod]
+    public void Criar_ComNomesAlunosNulo_LancaArgumentNullException()
+    {
+        Assert.ThrowsExactly<ArgumentNullException>(() => SolicitacaoCertificado.Criar(Guid.NewGuid(), null!));
+    }
+
+    private static SolicitacaoCertificado CriarSolicitacaoNoStatus(string status)
+    {
+        var solicitacao = SolicitacaoCertificado.Criar(Guid.NewGuid(), ["Maria"]);
+
+        switch (status)
+        {
+            case "Pendente":
+                return solicitacao;
+            case "GerandoCertificados":
+                solicitacao.IniciarProcessamento();
+                return solicitacao;
+            case "GerandoZip":
+                solicitacao.IniciarProcessamento();
+                solicitacao.IniciarGeracaoZip();
+                return solicitacao;
+            case "Concluido":
+                solicitacao.IniciarProcessamento();
+                solicitacao.IniciarGeracaoZip();
+                solicitacao.Concluir();
+                return solicitacao;
+            case "Falha":
+                solicitacao.MarcarFalha();
+                return solicitacao;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status), status, null);
+        }
     }
 }
