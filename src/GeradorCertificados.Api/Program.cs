@@ -31,5 +31,10 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" })).RequireAuthorization();
+app.MapGet("/", () => Results.Ok(new
+{
+    status = "online",
+    aplicacao = "Gerador de Certificados API"
+})).AllowAnonymous();
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.Run();
