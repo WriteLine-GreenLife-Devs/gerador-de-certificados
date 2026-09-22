@@ -12,6 +12,7 @@ using GeradorCertificados.Infrastructure.Certificados;
 using GeradorCertificados.Infrastructure.RabbitMq;
 using MassTransit;
 using QuestPDF.Infrastructure;
+using System.Security.Authentication;
 
 namespace GeradorCertificados.Infrastructure;
 
@@ -45,10 +46,13 @@ public static class DependencyInjection
 
             x.UsingRabbitMq((context, cfg) =>
             {
-                cfg.Host(rabbitMqOptions.Host, h =>
+                cfg.Host(rabbitMqOptions.Host, rabbitMqOptions.Port, rabbitMqOptions.VirtualHost, h =>
                 {
                     h.Username(rabbitMqOptions.Username);
                     h.Password(rabbitMqOptions.Password);
+
+                    if (rabbitMqOptions.UseSsl)
+                        h.UseSsl(s => s.Protocol = SslProtocols.Tls12);
                 });
 
                 cfg.ReceiveEndpoint("processar-solicitacao-certificados", e =>
