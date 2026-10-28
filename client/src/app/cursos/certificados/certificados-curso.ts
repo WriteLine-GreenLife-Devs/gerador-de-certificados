@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { form, FormField, required } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideFileText, LucideFolderArchive } from '@lucide/angular';
-import { exhaustMap, finalize, interval, Subscription } from 'rxjs';
+import { finalize, interval, Subscription } from 'rxjs';
 
 import { ApiValidationProblemDetails } from '../../auth/auth.models';
 import { CursoDto } from '../cursos.models';
@@ -31,6 +31,10 @@ export class CertificadosCurso {
   private readonly cursosService = inject(CursosService);
   private readonly certificadosService = inject(CertificadosService);
   private consultaStatus?: Subscription;
+  private consultaStatusEmAndamento = false;
+  private atualizacaoStatusPendente = false;
+  private consultaCertificadosEmAndamento = false;
+  private atualizacaoCertificadosPendente = false;
 
   protected readonly cursoId = this.route.snapshot.paramMap.get('cursoId') ?? '';
   protected readonly curso = signal<CursoDto | null>(null);
@@ -39,6 +43,9 @@ export class CertificadosCurso {
   protected readonly carregando = signal(true);
   protected readonly enviando = signal(false);
   protected readonly baixando = signal(false);
+  protected readonly carregandoCertificados = signal(false);
+  protected readonly certificadosCarregados = signal(false);
+  protected readonly erroCertificados = signal('');
   protected readonly modelo = signal<CertificadosFormModel>({ nomesAlunos: '' });
   protected readonly formulario = form(this.modelo, (modelo) => {
     required(modelo.nomesAlunos, { message: 'Informe ao menos um nome de aluno.' });
@@ -147,41 +154,90 @@ export class CertificadosCurso {
   }
 
   private carregarStatusProcessamento(): void {
-    this.certificadosService.obterStatus(this.cursoId).subscribe({
-      next: (status) => {
-        this.atualizarProcessamento(status);
-      },
-      error: (resposta: HttpErrorResponse) => {
-        this.status.set(null);
+    if (this.consultaStatusEmAndamento) {
+      this.atualizacaoStatusPendente = true;
+      return;
+    }
 
-        if (resposta.status !== 404) {
-          this.mensagemErro.set(
-            this.obterMensagemErroApi(
-              resposta,
-              'Não foi possível consultar o processamento dos certificados do curso.',
-            ),
-          );
-        }
+    this.consultaStatusEmAndamento = true;
+    this.certificadosService
+      .obterStatus(this.cursoId)
+      .pipe(
+        finalize(() => {
+          this.consultaStatusEmAndamento = false;
 
-        this.carregarCertificados();
-      },
-    });
+          if (this.atualizacaoStatusPendente) {
+            this.atualizacaoStatusPendente = false;
+            this.carregarStatusProcessamento();
+          }
+        }),
+      )
+      .subscribe({
+        next: (status) => {
+          this.atualizarProcessamento(status);
+        },
+        error: (resposta: HttpErrorResponse) => {
+          if (resposta.status === 404) {
+            this.status.set(null);
+          } else {
+            this.mensagemErro.set(
+              this.obterMensagemErroApi(
+                resposta,
+                'Não foi possível consultar o processamento dos certificados do curso.',
+              ),
+            );
+          }
+
+          this.pararAtualizacaoStatus();
+          this.carregarCertificados();
+        },
+      });
   }
 
   private carregarCertificados(): void {
-    this.certificadosService.listar(this.cursoId).subscribe({
-      next: (certificados) => this.certificados.set(certificados),
-      error: (resposta: HttpErrorResponse) => {
-        if (resposta.status !== 404) {
-          this.mensagemErro.set(
-            this.obterMensagemErroApi(
-              resposta,
-              'Não foi possível listar os certificados do curso.',
-            ),
+    if (this.consultaCertificadosEmAndamento) {
+      this.atualizacaoCertificadosPendente = true;
+      return;
+    }
+
+    this.consultaCertificadosEmAndamento = true;
+    this.erroCertificados.set('');
+    if (!this.certificadosCarregados()) {
+      this.carregandoCertificados.set(true);
+    }
+
+    this.certificadosService
+      .listar(this.cursoId)
+      .pipe(
+        finalize(() => {
+          this.consultaCertificadosEmAndamento = false;
+          this.carregandoCertificados.set(false);
+
+          if (this.atualizacaoCertificadosPendente) {
+            this.atualizacaoCertificadosPendente = false;
+            this.carregarCertificados();
+          }
+        }),
+      )
+      .subscribe({
+        next: (certificados) => {
+          this.certificados.set(certificados);
+          this.certificadosCarregados.set(true);
+        },
+        error: (resposta: HttpErrorResponse) => {
+          if (this.solicitacaoNaoEncontrada(resposta)) {
+            this.certificados.set([]);
+            this.certificadosCarregados.set(true);
+            return;
+          }
+
+          this.erroCertificados.set(
+            resposta.status === 404
+              ? 'Não foi possível encontrar o curso para carregar os certificados.'
+              : 'Não foi possível carregar os certificados. Tente novamente.',
           );
-        }
-      },
-    });
+        },
+      });
   }
 
   private processamentoEmAndamento(status: string): boolean {
@@ -206,22 +262,8 @@ export class CertificadosCurso {
     }
 
     this.consultaStatus = interval(2_000)
-      .pipe(
-        exhaustMap(() => this.certificadosService.obterStatus(this.cursoId)),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: (status) => this.atualizarProcessamento(status),
-        error: (resposta: HttpErrorResponse) => {
-          this.mensagemErro.set(
-            this.obterMensagemErroApi(
-              resposta,
-              'Não foi possível atualizar o processamento dos certificados do curso.',
-            ),
-          );
-          this.pararAtualizacaoStatus();
-        },
-      });
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.carregarStatusProcessamento());
   }
 
   private pararAtualizacaoStatus(): void {
@@ -239,6 +281,29 @@ export class CertificadosCurso {
     }
 
     return problem?.detail ?? mensagemPadrao;
+  }
+
+  protected formatarDataGeracao(dataGeracao: string): string | null {
+    const timestamp = Date.parse(dataGeracao);
+
+    return Number.isNaN(timestamp)
+      ? null
+      : new Intl.DateTimeFormat('pt-BR', {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }).format(timestamp);
+  }
+
+  private solicitacaoNaoEncontrada(resposta: HttpErrorResponse): boolean {
+    if (resposta.status !== 404 || !resposta.error || typeof resposta.error !== 'object') {
+      return false;
+    }
+
+    const problem = resposta.error as { readonly detail?: string; readonly title?: string };
+    return (
+      problem.title === 'Solicitação não encontrada' ||
+      problem.detail?.startsWith('Não existe solicitação para o curso ') === true
+    );
   }
 
   private async tratarErroDownload(resposta: HttpErrorResponse): Promise<void> {
