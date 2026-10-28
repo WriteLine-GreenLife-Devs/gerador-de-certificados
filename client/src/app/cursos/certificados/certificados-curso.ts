@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { form, FormField, required } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideFileText, LucideFolderArchive } from '@lucide/angular';
-import { exhaustMap, interval, Subscription } from 'rxjs';
+import { exhaustMap, finalize, interval, Subscription } from 'rxjs';
 
 import { ApiValidationProblemDetails } from '../../auth/auth.models';
 import { CursoDto } from '../cursos.models';
@@ -126,25 +126,24 @@ export class CertificadosCurso {
     this.baixando.set(true);
     this.mensagemErro.set('');
 
-    this.certificadosService.baixar(this.cursoId).subscribe({
-      next: (arquivo) => {
-        const url = URL.createObjectURL(arquivo);
-        const link = document.createElement('a');
+    this.certificadosService
+      .baixar(this.cursoId)
+      .pipe(finalize(() => this.baixando.set(false)))
+      .subscribe({
+        next: (arquivo) => {
+          const url = URL.createObjectURL(arquivo);
+          const link = document.createElement('a');
 
-        link.href = url;
-        link.download = `certificados-${this.cursoId}.zip`;
-        link.click();
+          link.href = url;
+          link.download = `certificados-${this.cursoId}.zip`;
+          link.click();
 
-        URL.revokeObjectURL(url);
-        this.baixando.set(false);
-      },
-      error: (resposta: HttpErrorResponse) => {
-        this.baixando.set(false);
-        this.mensagemErro.set(
-          this.obterMensagemErroApi(resposta, 'Não foi possível baixar o arquivo ZIP.'),
-        );
-      },
-    });
+          URL.revokeObjectURL(url);
+        },
+        error: (resposta: HttpErrorResponse) => {
+          void this.tratarErroDownload(resposta);
+        },
+      });
   }
 
   private carregarStatusProcessamento(): void {
@@ -240,5 +239,49 @@ export class CertificadosCurso {
     }
 
     return problem?.detail ?? mensagemPadrao;
+  }
+
+  private async tratarErroDownload(resposta: HttpErrorResponse): Promise<void> {
+    const problem = await this.obterProblemDetailsDownload(resposta);
+
+    if (resposta.status === 409) {
+      const processamentoFalhou =
+        this.status()?.status === 'Falha' || problem?.title === 'Solicitação falhou';
+      this.mensagemErro.set(
+        processamentoFalhou
+          ? 'O processamento dos certificados falhou. Não há ZIP disponível para download.'
+          : 'O ZIP ainda não está pronto. Aguarde a conclusão do processamento e tente novamente.',
+      );
+      return;
+    }
+
+    if (resposta.status === 404) {
+      this.mensagemErro.set('O ZIP não foi encontrado para este curso.');
+      return;
+    }
+
+    this.mensagemErro.set(
+      problem?.detail ?? 'Não foi possível baixar o arquivo ZIP.',
+    );
+  }
+
+  private async obterProblemDetailsDownload(
+    resposta: HttpErrorResponse,
+  ): Promise<(ApiValidationProblemDetails & { readonly title?: string }) | null> {
+    const corpo = resposta.error;
+
+    if (corpo instanceof Blob) {
+      try {
+        return JSON.parse(await corpo.text()) as ApiValidationProblemDetails & {
+          readonly title?: string;
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    return corpo && typeof corpo === 'object'
+      ? (corpo as ApiValidationProblemDetails & { readonly title?: string })
+      : null;
   }
 }
