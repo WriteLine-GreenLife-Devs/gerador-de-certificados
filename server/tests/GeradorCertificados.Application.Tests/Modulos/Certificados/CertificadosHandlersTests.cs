@@ -172,6 +172,33 @@ public sealed class CertificadosHandlersTests
     }
 
     [TestMethod]
+    public async Task ListarCertificadosQueryHandler_ComStatusVariados_RetornaNomeStatusEDataGeracao()
+    {
+        var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));
+        var solicitacao = SolicitacaoCertificado.Criar(curso.Id, ["Ana", "Bruno", "Carla"]);
+        var certificadoGerado = solicitacao.Certificados.Single(x => x.NomeAluno == "Bruno");
+        certificadoGerado.MarcarComoGerado("certificados/bruno.pdf");
+        var dataGeracao = certificadoGerado.DataGeracao;
+        solicitacao.Certificados.Single(x => x.NomeAluno == "Carla").MarcarComoFalha();
+        var handler = new ListarCertificadosQueryHandler(
+            new FakeCursoRepository(curso),
+            new FakeSolicitacaoCertificadoRepository(solicitacao));
+
+        var resultado = await handler.Handle(new ListarCertificadosQuery(curso.Id), CancellationToken.None);
+
+        Assert.HasCount(3, resultado);
+        var ana = resultado.Single(x => x.NomeAluno == "Ana");
+        var bruno = resultado.Single(x => x.NomeAluno == "Bruno");
+        var carla = resultado.Single(x => x.NomeAluno == "Carla");
+        Assert.AreEqual(StatusCertificado.Pendente, ana.Status);
+        Assert.IsNull(ana.DataGeracao);
+        Assert.AreEqual(StatusCertificado.Gerado, bruno.Status);
+        Assert.AreEqual(dataGeracao, bruno.DataGeracao);
+        Assert.AreEqual(StatusCertificado.Falha, carla.Status);
+        Assert.IsNull(carla.DataGeracao);
+    }
+
+    [TestMethod]
     public async Task ListarCertificadosQueryHandler_ComCursoSemSolicitacao_LancaSolicitacaoNaoEncontradaException()
     {
         var curso = Curso.Criar("Curso", "Descricao", 40, new DateOnly(2026, 1, 1));

@@ -170,6 +170,7 @@ public sealed class DownloadCertificadosTests
         Assert.IsNotNull(fileResult);
         Assert.AreEqual("application/zip", fileResult!.ContentType);
         Assert.AreEqual($"certificados-{solicitacaoId}.zip", fileResult.FileDownloadName);
+        CollectionAssert.AreEqual(new byte[] { 0x50, 0x4B, 0x03, 0x04 }, fileResult.FileContents);
     }
 
     [TestMethod]
@@ -210,6 +211,168 @@ public sealed class DownloadCertificadosTests
         var conflict = actionResult as ObjectResult;
         Assert.IsNotNull(conflict);
         Assert.AreEqual(StatusCodes.Status409Conflict, conflict!.StatusCode);
+        var problem = conflict.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Conflito", problem!.Title);
+        StringAssert.Contains(problem.Detail!, "ainda não está concluída");
+    }
+
+    [TestMethod]
+    public async Task Controller_ComSolicitacaoInexistente_RetornaNotFound()
+    {
+        var cursoId = Guid.NewGuid();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ObterDownloadCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SolicitacaoNaoEncontradaException(cursoId));
+
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Download(cursoId, CancellationToken.None);
+
+        var notFound = actionResult as NotFoundObjectResult;
+        Assert.IsNotNull(notFound);
+        Assert.AreEqual(StatusCodes.Status404NotFound, notFound!.StatusCode);
+        var problem = notFound.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Solicitação não encontrada", problem!.Title);
+    }
+
+    [TestMethod]
+    public async Task Controller_ComSolicitacaoConcluidaSemZip_RetornaNotFound()
+    {
+        var cursoId = Guid.NewGuid();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ObterDownloadCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ArquivoCertificadoDownload?)null);
+        mediator
+            .Setup(x => x.Send(It.IsAny<ConsultarStatusSolicitacaoQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StatusSolicitacaoDto(
+                Guid.NewGuid(),
+                cursoId,
+                StatusSolicitacaoCertificado.Concluido,
+                DateTimeOffset.UtcNow,
+                1,
+                1,
+                0));
+
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Download(cursoId, CancellationToken.None);
+
+        var notFound = actionResult as NotFoundObjectResult;
+        Assert.IsNotNull(notFound);
+        Assert.AreEqual(StatusCodes.Status404NotFound, notFound!.StatusCode);
+        var problem = notFound.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Arquivo não encontrado", problem!.Title);
+        StringAssert.Contains(problem.Detail!, "ZIP");
+    }
+
+    [TestMethod]
+    public async Task Controller_ComSolicitacaoFalha_RetornaConflictComMensagemEspecifica()
+    {
+        var cursoId = Guid.NewGuid();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ObterDownloadCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ArquivoCertificadoDownload?)null);
+        mediator
+            .Setup(x => x.Send(It.IsAny<ConsultarStatusSolicitacaoQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StatusSolicitacaoDto(
+                Guid.NewGuid(),
+                cursoId,
+                StatusSolicitacaoCertificado.Falha,
+                DateTimeOffset.UtcNow,
+                1,
+                0,
+                1));
+
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Download(cursoId, CancellationToken.None);
+
+        var conflict = actionResult as ObjectResult;
+        Assert.IsNotNull(conflict);
+        Assert.AreEqual(StatusCodes.Status409Conflict, conflict!.StatusCode);
+        var problem = conflict.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Solicitação falhou", problem!.Title);
+        Assert.AreEqual("Não há ZIP disponível para esta solicitação.", problem.Detail);
+    }
+
+    [TestMethod]
+    public async Task Controller_ListarComCertificados_RetornaStatusENomeEData()
+    {
+        var cursoId = Guid.NewGuid();
+        var dataGeracao = DateTimeOffset.Parse("2026-10-28T12:00:00Z");
+        var certificados = new[]
+        {
+            new CertificadoResumo(Guid.NewGuid(), "Ana", StatusCertificado.Pendente, null),
+            new CertificadoResumo(Guid.NewGuid(), "Bruno", StatusCertificado.Gerado, dataGeracao),
+            new CertificadoResumo(Guid.NewGuid(), "Carla", StatusCertificado.Falha, null)
+        };
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ListarCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(certificados);
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Listar(cursoId, CancellationToken.None);
+
+        var ok = actionResult.Result as OkObjectResult;
+        Assert.IsNotNull(ok);
+        Assert.AreEqual(StatusCodes.Status200OK, ok!.StatusCode);
+        var itens = (IReadOnlyCollection<GeradorCertificados.Api.Contracts.Certificados.CertificadoItemResponse>)ok.Value!;
+        Assert.HasCount(3, itens);
+        CollectionAssert.AreEqual(
+            new[] { "Ana", "Bruno", "Carla" },
+            itens.Select(x => x.NomeAluno).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Pendente", "Gerado", "Falha" },
+            itens.Select(x => x.Status).ToArray());
+        Assert.AreEqual(dataGeracao, itens.ElementAt(1).DataGeracao);
+        Assert.IsNull(itens.ElementAt(0).DataGeracao);
+        Assert.IsNull(itens.ElementAt(2).DataGeracao);
+    }
+
+    [TestMethod]
+    public async Task Controller_ListarSemCertificados_RetornaListaVazia()
+    {
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ListarCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CertificadoResumo>());
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Listar(Guid.NewGuid(), CancellationToken.None);
+
+        var ok = actionResult.Result as OkObjectResult;
+        Assert.IsNotNull(ok);
+        Assert.AreEqual(StatusCodes.Status200OK, ok!.StatusCode);
+        var itens = (IReadOnlyCollection<GeradorCertificados.Api.Contracts.Certificados.CertificadoItemResponse>)ok.Value!;
+        Assert.IsEmpty(itens);
+    }
+
+    [TestMethod]
+    public async Task Controller_ListarSemSolicitacao_RetornaNotFound()
+    {
+        var cursoId = Guid.NewGuid();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ListarCertificadosQuery>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SolicitacaoNaoEncontradaException(cursoId));
+        var controller = new CertificadosController(mediator.Object);
+
+        var actionResult = await controller.Listar(cursoId, CancellationToken.None);
+
+        var notFound = actionResult.Result as NotFoundObjectResult;
+        Assert.IsNotNull(notFound);
+        Assert.AreEqual(StatusCodes.Status404NotFound, notFound!.StatusCode);
+        var problem = notFound.Value as ProblemDetails;
+        Assert.IsNotNull(problem);
+        Assert.AreEqual("Solicitação não encontrada", problem!.Title);
     }
 
     [TestMethod]
