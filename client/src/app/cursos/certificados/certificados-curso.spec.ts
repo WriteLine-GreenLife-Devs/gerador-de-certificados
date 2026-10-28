@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CursoDto } from '../cursos.models';
 import { CursosService } from '../cursos.service';
-import { StatusProcessamentoDto } from './certificados.models';
+import { CertificadoDto, StatusProcessamentoDto } from './certificados.models';
 import { CertificadosService } from './certificados.service';
 import { CertificadosCurso } from './certificados-curso';
 
@@ -27,7 +27,9 @@ describe('CertificadosCurso download', () => {
   let revokeObjectUrl: ReturnType<typeof vi.fn>;
   let clickAnchor: ReturnType<typeof vi.spyOn>;
   let statusResponses: Observable<StatusProcessamentoDto>[];
+  let certificadosResponses: Observable<readonly CertificadoDto[]>[];
   let obterStatus: ReturnType<typeof vi.fn>;
+  let listar: ReturnType<typeof vi.fn>;
   let baixar: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -49,6 +51,7 @@ describe('CertificadosCurso download', () => {
   afterEach(() => {
     fixture?.destroy();
     vi.restoreAllMocks();
+    vi.useRealTimers();
     if (downloadDescriptor) {
       Object.defineProperty(URL, 'createObjectURL', downloadDescriptor);
     } else {
@@ -61,10 +64,15 @@ describe('CertificadosCurso download', () => {
     }
   });
 
-  function criarTela(statusInicial = 'Concluido'): void {
+  function criarTela(
+    statusInicial = 'Concluido',
+    primeiraLista: Observable<readonly CertificadoDto[]> = of([]),
+  ): void {
     download = new Subject<Blob>();
     statusResponses = [of(criarStatus(statusInicial))];
+    certificadosResponses = [primeiraLista];
     obterStatus = vi.fn(() => statusResponses.shift() ?? of(criarStatus(statusInicial)));
+    listar = vi.fn(() => certificadosResponses.shift() ?? of([]));
     baixar = vi.fn(() => download.asObservable());
 
     TestBed.configureTestingModule({
@@ -83,7 +91,7 @@ describe('CertificadosCurso download', () => {
           provide: CertificadosService,
           useValue: {
             obterStatus,
-            listar: vi.fn(() => of([])),
+            listar,
             baixar,
             solicitar: vi.fn(),
           },
@@ -235,4 +243,224 @@ describe('CertificadosCurso download', () => {
     expect(botaoDownload().disabled).toBe(true);
     expect(botaoDownload().textContent).toContain('Baixando ZIP...');
   });
+
+  it('exibe carregamento na consulta inicial e não durante atualização em segundo plano', () => {
+    const consultaInicial = new Subject<readonly CertificadoDto[]>();
+    criarTela('Concluido', consultaInicial);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Carregando certificados...');
+
+    consultaInicial.next([criarCertificado('cert-1', 'Maria', 'Gerado')]);
+    consultaInicial.complete();
+    fixture.detectChanges();
+
+    const consultaEmSegundoPlano = new Subject<readonly CertificadoDto[]>();
+    certificadosResponses.push(consultaEmSegundoPlano);
+    statusResponses.push(of(criarStatus('Concluido')));
+    fixture.componentInstance['atualizarStatus']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Carregando certificados...');
+    consultaEmSegundoPlano.complete();
+  });
+
+  it('exibe mensagem própria quando a API retorna uma lista vazia', () => {
+    criarTela();
+
+    expect(fixture.nativeElement.textContent).toContain('Ainda não há certificados para exibir.');
+    expect(fixture.nativeElement.textContent).not.toContain('Não foi possível carregar os certificados');
+  });
+
+  it('trata 404 de solicitação inexistente como ausência normal', () => {
+    criarTela();
+    certificadosResponses.push(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            status: 404,
+            error: {
+              title: 'Solicitação não encontrada',
+              detail: 'Não existe solicitação para o curso curso-123.',
+            },
+          }),
+      ),
+    );
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Ainda não há certificados para exibir.');
+    expect(fixture.nativeElement.textContent).not.toContain('Não foi possível carregar');
+  });
+
+  it('exibe mensagem amigável para erro inesperado da listagem', () => {
+    criarTela();
+    certificadosResponses.push(
+      throwError(() => new HttpErrorResponse({ status: 500 })),
+    );
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Não foi possível carregar os certificados. Tente novamente.',
+    );
+  });
+
+  it('preserva certificados carregados quando uma atualização falha', () => {
+    criarTela();
+    const certificados = [
+      criarCertificado('cert-1', 'Maria', 'Gerado'),
+      criarCertificado('cert-2', 'João', 'Pendente'),
+    ];
+    certificadosResponses.push(of(certificados));
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    certificadosResponses.push(
+      throwError(() => new HttpErrorResponse({ status: 503 })),
+    );
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Maria');
+    expect(fixture.nativeElement.textContent).toContain('João');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Não foi possível carregar os certificados. Tente novamente.',
+    );
+  });
+
+  it('mostra erro para 404 que não corresponde a solicitação inexistente', () => {
+    criarTela();
+    certificadosResponses.push(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            status: 404,
+            error: { title: 'Curso não encontrado', detail: 'O curso não existe.' },
+          }),
+      ),
+    );
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Não foi possível encontrar o curso para carregar os certificados.',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Ainda não há certificados para exibir.',
+    );
+  });
+
+  it('exibe status individuais e data válida, sem exibir data ausente ou inválida', () => {
+    criarTela();
+    certificadosResponses.push(
+      of([
+        criarCertificado('cert-pendente', 'Ana', 'Pendente', null),
+        criarCertificado('cert-gerado', 'Bruno', 'Gerado', '2026-10-28T12:00:00Z'),
+        criarCertificado('cert-falha', 'Carla', 'Falha', null),
+        criarCertificado('cert-data-invalida', 'Davi', 'Gerado', 'data-invalida'),
+      ]),
+    );
+    fixture.componentInstance['carregarCertificados']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Pendente');
+    expect(fixture.nativeElement.textContent).toContain('Gerado');
+    expect(fixture.nativeElement.textContent).toContain('Falha');
+    expect(fixture.nativeElement.textContent).toContain('Gerado em 28/10/2026');
+    expect(fixture.nativeElement.textContent).not.toContain('Gerado em data-invalida');
+    expect(fixture.nativeElement.textContent).toContain('Davi');
+  });
+
+  it('consulta status e atualiza certificados durante o processamento', async () => {
+    vi.useFakeTimers();
+    criarTela('GerandoCertificados');
+    certificadosResponses.push(
+      of([criarCertificado('cert-1', 'Maria', 'Pendente')]),
+    );
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(obterStatus).toHaveBeenCalledTimes(2);
+    expect(listar).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.textContent).toContain('Maria');
+  });
+
+  it('atualiza a listagem após o processamento ser concluído e encerra o polling', async () => {
+    vi.useFakeTimers();
+    criarTela('GerandoCertificados');
+    statusResponses.push(of(criarStatus('Concluido')));
+    certificadosResponses.push(
+      of([criarCertificado('cert-1', 'Maria', 'Gerado')]),
+    );
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const chamadasStatusAposConclusao = obterStatus.mock.calls.length;
+
+    vi.advanceTimersByTime(6_000);
+
+    expect(listar).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.textContent).toContain('Maria');
+    expect(obterStatus).toHaveBeenCalledTimes(chamadasStatusAposConclusao);
+  });
+
+  it('serializa atualizações da lista e aplica a resposta mais recente', () => {
+    const consultaInicial = new Subject<readonly CertificadoDto[]>();
+    criarTela('GerandoCertificados', consultaInicial);
+    certificadosResponses.push(
+      of([criarCertificado('cert-atual', 'Resposta atual', 'Gerado')]),
+    );
+
+    fixture.componentInstance['carregarCertificados']();
+    expect(listar).toHaveBeenCalledTimes(1);
+
+    consultaInicial.next([criarCertificado('cert-antigo', 'Resposta antiga', 'Pendente')]);
+    consultaInicial.complete();
+    fixture.detectChanges();
+
+    expect(listar).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.textContent).toContain('Resposta atual');
+    expect(fixture.nativeElement.textContent).not.toContain('Resposta antiga');
+  });
+
+  it('processa a atualização de status pendente sem iniciar consultas concorrentes', () => {
+    vi.useFakeTimers();
+    criarTela('GerandoCertificados');
+    const primeiraAtualizacao = new Subject<StatusProcessamentoDto>();
+    statusResponses.push(primeiraAtualizacao);
+
+    vi.advanceTimersByTime(2_000);
+    expect(obterStatus).toHaveBeenCalledTimes(2);
+
+    fixture.componentInstance['atualizarStatus']();
+    fixture.componentInstance['atualizarStatus']();
+    expect(obterStatus).toHaveBeenCalledTimes(2);
+
+    primeiraAtualizacao.next(criarStatus('GerandoCertificados'));
+    primeiraAtualizacao.complete();
+
+    expect(obterStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it('cancela o polling quando o componente é destruído', () => {
+    vi.useFakeTimers();
+    criarTela('GerandoCertificados');
+
+    fixture.destroy();
+    vi.advanceTimersByTime(6_000);
+
+    expect(obterStatus).toHaveBeenCalledTimes(1);
+  });
+
+  function criarCertificado(
+    id: string,
+    nomeAluno: string,
+    status: string,
+    dataGeracao: string | null = null,
+  ): CertificadoDto {
+    return { id, nomeAluno, status, dataGeracao };
+  }
 });
